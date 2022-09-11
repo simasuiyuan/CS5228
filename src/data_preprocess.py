@@ -42,7 +42,7 @@ class DataPreprocessor:
         """
         df_.loc[df_['property_type'].str.contains('hdb'), 'property_type'] = 'hdb'
         
-        cat_order = df_.groupby('property_type').mean().sort_values('price').index.to_list()
+        cat_order = df_.groupby('property_type').median().sort_values('price').index.to_list()
         enc = OrdinalEncoder(categories=[cat_order])
         df_['property_type_cat'] = enc.fit_transform(df_['property_type'].values.reshape(-1, 1))
 
@@ -53,8 +53,12 @@ class DataPreprocessor:
         df_ = df.copy()
         """ ref https://www.theorigins.com.sg/post/freehold-vs-leasehold-condo-is-99-years-really-enough
         """
-        df_.loc[df_['tenure'].isna(), 'tenure'] = ''
+        df_.loc[df_['tenure'].isna(), 'tenure'] = 'others'
         df_.loc[df_['tenure'].str.contains(r'^1[0-9]{2}-year leasehold$'), 'tenure'] = '103/110-year leasehold'
         df_.loc[df_['tenure'].str.contains(r'^9[0-9]{2}-year leasehold$'), 'tenure'] = '999-year leasehold'
         df_.loc[df_['property_type']=='hdb', 'tenure'] = '99-year leasehold'
+
+        cat_order = df_.groupby('tenure').median().sort_values('price').index.to_list()
+        enc = OrdinalEncoder(categories=[cat_order])
+        df_['tenure_cat'] = enc.fit_transform(df_['tenure'].values.reshape(-1, 1))
         return df_
