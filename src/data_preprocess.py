@@ -10,6 +10,17 @@ class DataPreprocessor:
         df_.drop(df_[zscore(df_['price']) > 3].index, inplace=True)
         return df_
 
+    @staticmethod
+    def remove_duplicates(df) -> pd.DataFrame:
+        df_ = df.copy()
+        """ same attribute records same price
+        """
+        df_ = df_.drop_duplicates(subset=df_.columns[1:].tolist(), keep='first')
+        """ same attribute records different price => take average (+/- 200,000)
+        """
+        df_ = df_.groupby(df_.columns[1:-1].tolist(), dropna=False).mean().reset_index()
+        return df_
+
     """ 1. handling missing data
         2. transform cat data
         3. drop the columns
@@ -36,15 +47,15 @@ class DataPreprocessor:
         df_ = df.copy()
         """ convert to small letters
         """
-        df_['property_type'] = df_['property_type'].str.lower()
+        df_['property_type_clean'] = df_['property_type'].str.lower()
 
         """ drop hdb rooms: this feature will be reflected on num_beds	num_baths
         """
-        df_.loc[df_['property_type'].str.contains('hdb'), 'property_type'] = 'hdb'
+        df_.loc[df_['property_type_clean'].str.contains('hdb') & (df_['property_type_clean'] != 'hdb executive'), 'property_type_clean'] = 'hdb'
         
-        cat_order = df_.groupby('property_type').median().sort_values('price').index.to_list()
+        cat_order = df_.groupby('property_type_clean').median().sort_values('price').index.to_list()
         enc = OrdinalEncoder(categories=[cat_order])
-        df_['property_type_cat'] = enc.fit_transform(df_['property_type'].values.reshape(-1, 1))
+        df_['property_type_cat'] = enc.fit_transform(df_['property_type_clean'].values.reshape(-1, 1))
 
         return df_
 
@@ -61,4 +72,30 @@ class DataPreprocessor:
         cat_order = df_.groupby('tenure').median().sort_values('price').index.to_list()
         enc = OrdinalEncoder(categories=[cat_order])
         df_['tenure_cat'] = enc.fit_transform(df_['tenure'].values.reshape(-1, 1))
+        return df_
+
+    def impute_built_year_unify(sub_df) -> pd.DataFrame:
+        unique_year = sub_df['built_year'].unique()
+        if len(unique_year)==2:
+            sub_df['built_year'] = [x for x in unique_year if str(x) != 'nan'][0]
+        return sub_df
+    
+    @staticmethod
+    def preprocess_built_year(df) -> pd.DataFrame:
+        df_ = df.copy()
+        # Imputation
+        """ Using property_type, lat, lng to allocate built-year groups
+            compromised resolution to 2 decimal will extend the number of distinct year + missing sample pairs 
+            (high confidence to share the same built year)
+        """
+        df_[['lat_2d', 'lng_2d']] = df_[['lat', 'lng']].round(2)
+        """ low resolution pairs: 'property_type','lat_2d', 'lng_2d'
+        """
+        df_ = df_.groupby(['property_type','lat_2d', 'lng_2d'])\
+            .apply(DataPreprocessor.impute_built_year_1)
+        """ higher resolution pairs: 'property_type','lat_2d', 'lng_2d','furnishing' 
+        """
+        df_ = df_.groupby(['property_type','lat_2d', 'lng_2d','subzone','furnishing'])\
+            .apply(DataPreprocessor.impute_built_year_1)
+        df_.drop(columns=['lat_2d', 'lng_2d'], inplace=True)
         return df_
