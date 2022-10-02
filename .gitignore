@@ -1,2 +1,5 @@
 # ignore ALL input data files
 input/
+working/.ipynb_checkpoints
+src/__pycache__
+lib/*
