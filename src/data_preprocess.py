@@ -16,18 +16,20 @@ class DataPreprocessor:
     @staticmethod
     def remove_price_outlier(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
-        df_.drop(df_[zscore(df_['price']) > 3].index, inplace=True)
+        if not test:
+            df_.drop(df_[zscore(df_['price']) > 3].index, inplace=True)
         return df_
 
     @staticmethod
     def remove_duplicates(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
-        """ same attribute records same price
-        """
-        df_ = df_.drop_duplicates(subset=df_.columns[1:].tolist(), keep='first')
-        """ same attribute records different price => take average (+/- 200,000)
-        """
-        df_ = df_.groupby(df_.columns[1:-1].tolist(), dropna=False).mean().reset_index()
+        if not test:
+            """ same attribute records same price
+            """
+            df_ = df_.drop_duplicates(subset=df_.columns[1:].tolist(), keep='first')
+            """ same attribute records different price => take average (+/- 200,000)
+            """
+            df_ = df_.groupby(df_.columns[1:-1].tolist(), dropna=False).mean().reset_index()
         return df_
 
     """ 1. handling missing data
@@ -210,7 +212,8 @@ class DataPreprocessor:
     @staticmethod
     def preprocess_size_sqft(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
-        df_.drop(df_[zscore(df_['size_sqft']) > 5].index, inplace=True)
+        if not test:
+            df_.drop(df_[zscore(df_['size_sqft']) > 5].index, inplace=True)
         df_.loc[df_["size_sqft"] <= 200, "size_sqft"] = (df_.loc[df_["size_sqft"] <= 200, "size_sqft"] * 10.76391).astype(int)
         df_ = df_.groupby(['title','property_type', 'num_beds', 'num_baths'], dropna=False).apply(DataPreprocessor.impute_size_sqft_unify)
         return df_
@@ -252,7 +255,6 @@ class DataPreprocessor:
                 total_level_encoder = pickle.load(f)
             with open(WORKING_DIR/'lib'/'floor_level_encoder.sav', 'rb') as f:
                 floor_level_encoder = pickle.load(f)
-
         df_['total_level_cat'] = total_level_encoder.fit_transform(df_['total_level_cat'].astype(float).astype(str).values.reshape(-1, 1))
         df_['floor_level_cat'] = floor_level_encoder.fit_transform(df_['floor_level_cat'].astype(str).values.reshape(-1, 1))
         return df_
@@ -261,8 +263,14 @@ class DataPreprocessor:
     def preprocess_furnishing(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         df_.loc[df_["furnishing"]=='na', "furnishing"] = 'unspecified'
-        furnishing_cat_order = ['unfurnished','partial','fully','unspecified']
-        furnishing_encoder = OrdinalEncoder(categories=[furnishing_cat_order])
+        if not test:
+            furnishing_cat_order = ['unfurnished','partial','fully','unspecified']
+            furnishing_encoder = OrdinalEncoder(categories=[furnishing_cat_order])
+            with open(WORKING_DIR/'lib'/'furnishing_encoder.sav', 'wb') as f:
+                pickle.dump(furnishing_encoder, f)
+        else:
+            with open(WORKING_DIR/'lib'/'furnishing_encoder.sav', 'rb') as f:
+                furnishing_encoder = pickle.load(f)
         df_['furnishing_cat'] = furnishing_encoder.fit_transform(df_['furnishing'].astype(str).values.reshape(-1, 1))
         return df_
 
@@ -314,7 +322,15 @@ class DataPreprocessor:
     def preprocess_planning_area(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         df_ = DataPreprocessor.impute_planning_area(df_)
-        planning_area_encoder = OrdinalEncoder(categories=[df_['planning_area'].unique()])
+        if not test:
+            planning_area_list = list(df_['planning_area'].unique())
+            planning_area_list.append('nan')
+            planning_area_encoder = OrdinalEncoder(categories=[planning_area_list], handle_unknown='use_encoded_value', unknown_value=len(planning_area_list))
+            with open(WORKING_DIR/'lib'/'planning_area_encoder.sav', 'wb') as f:
+                pickle.dump(planning_area_encoder, f)
+        else:
+            with open(WORKING_DIR/'lib'/'planning_area_encoder.sav', 'rb') as f:
+                planning_area_encoder = pickle.load(f)
         df_['planning_area_cat'] = planning_area_encoder.fit_transform(df_['planning_area'].astype(str).values.reshape(-1, 1))
         return df_
 
@@ -384,6 +400,10 @@ class DataPreprocessor:
             drop_attributes.add('subzone')
             drop_attributes.add('available_unit_types')
             drop_attributes.add('total_num_units')
+            drop_attributes.add('furnishing')
+            drop_attributes.add('property_details_url')
+            drop_attributes.add('planning_area')
+            drop_attributes.add('elevation')
             df_clean = df_clean.drop(drop_attributes, axis=1,inplace=False).reset_index(drop=True)
         
         if drop_na:
