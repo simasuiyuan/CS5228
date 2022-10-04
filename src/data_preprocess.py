@@ -18,6 +18,8 @@ class DataPreprocessor:
         df_ = df.copy()
         if not test:
             df_.drop(df_[zscore(df_['price']) > 3].index, inplace=True)
+            # df_.drop(df_[zscore(df_['lat']) > 2].index, inplace=True)
+            # df_.drop(df_[~((zscore(train_df_clean['lng']) > -1) & (zscore(train_df_clean['lng']) < 1))].index, inplace=True)
         return df_
 
     @staticmethod
@@ -53,6 +55,18 @@ class DataPreprocessor:
         """
         df_['title_address'] = df_['title'].str.split('in ').str[-1]
         return df_
+
+    @staticmethod
+    def preprocess_lat_lng(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+        lat_lng_impute_dict = {
+            "1953": (1.3165065395052853, 103.85747739945413),
+            "m5": (1.2959352730861813, 103.82885982666735), 
+            "ness": (1.313556425343857, 103.88705437671443),
+            "pollen & bleu": (1.3138003193645669, 103.80676998433876)
+        }
+        for key, val in lat_lng_impute_dict.items():
+            df.loc[df["title_address"]==key, ["lat", "lng"]] = val
+        return df
 
     @staticmethod
     def preprocess_property_type(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
@@ -361,6 +375,7 @@ class DataPreprocessor:
             DataPreprocessor.remove_price_outlier, # Excessive outliers
             DataPreprocessor.remove_duplicates, # Duplicated records
             DataPreprocessor.preprocess_title, # extract features form title
+            DataPreprocessor.preprocess_lat_lng, # correct lat and lng
             DataPreprocessor.preprocess_property_type, # property_type
             DataPreprocessor.preprocess_tenure, # tenure
             DataPreprocessor.preprocess_built_year, # built_year -  unfinished!
