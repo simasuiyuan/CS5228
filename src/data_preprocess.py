@@ -1,10 +1,12 @@
 import numpy as np
 import pandas as pd
-import re
+from time import time
 from scipy.stats import zscore
+from sklearn import preprocessing
 from sklearn.preprocessing import OrdinalEncoder
 import pickle
 import pathlib
+from tqdm import tqdm
 
 WORKING_DIR = pathlib.Path(__file__).parent.parent.resolve()
 # depends on if model can handle NaN or not
@@ -12,13 +14,13 @@ KEEP_UNCERTAIN = False
 
 class DataPreprocessor:
     @staticmethod
-    def remove_price_outlier(df) -> pd.DataFrame:
+    def remove_price_outlier(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         df_.drop(df_[zscore(df_['price']) > 3].index, inplace=True)
         return df_
 
     @staticmethod
-    def remove_duplicates(df) -> pd.DataFrame:
+    def remove_duplicates(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         """ same attribute records same price
         """
@@ -33,7 +35,7 @@ class DataPreprocessor:
         3. drop the columns
     """
     @staticmethod
-    def preprocess_title(df) -> pd.DataFrame:
+    def preprocess_title(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         """get property_type form title
         """
@@ -44,14 +46,14 @@ class DataPreprocessor:
         df_.loc[df_['title_n_beds'].str.contains("studio"), 'title_n_beds'] = '1'
         """ check is all sale
         """
-        print(df_['title'].str.split('for ').str[-1].str.split(' ').str[0].unique())
+        #print(df_['title'].str.split('for ').str[-1].str.split(' ').str[0].unique())
         """ get address form title
         """
         df_['title_address'] = df_['title'].str.split('in ').str[-1]
         return df_
 
     @staticmethod
-    def preprocess_property_type(df, test=False) -> pd.DataFrame:
+    def preprocess_property_type(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         """ convert to small letters
         """
@@ -75,7 +77,7 @@ class DataPreprocessor:
         return df_
 
     @staticmethod
-    def preprocess_tenure(df, test=False) -> pd.DataFrame:
+    def preprocess_tenure(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         """ ref https://www.theorigins.com.sg/post/freehold-vs-leasehold-condo-is-99-years-really-enough
         """
@@ -97,7 +99,7 @@ class DataPreprocessor:
 
         return df_
 
-    def impute_built_year_unify(sub_df) -> pd.DataFrame:
+    def impute_built_year_unify(sub_df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         unique_year = sub_df['built_year'].unique()
         if len(unique_year)==2:
             sub_df['built_year'] = [x for x in unique_year if str(x) != 'nan'][0]
@@ -110,7 +112,7 @@ class DataPreprocessor:
         return sub_df
     
     @staticmethod
-    def preprocess_built_year(df, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+    def preprocess_built_year(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         """ unfinished!!!!!!!!!!
         """
         df_ = df.copy()
@@ -139,7 +141,7 @@ class DataPreprocessor:
         return sub_df
 
     @staticmethod
-    def preprocess_num_beds(df, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+    def preprocess_num_beds(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         # Imputation
         """ Using number of beds extracted from title to impute
@@ -154,7 +156,7 @@ class DataPreprocessor:
             df_ = df_.groupby(['size_sqft'], dropna=False).apply(DataPreprocessor.impute_num_beds_uncertain)
         return df_
 
-    def impute_num_baths_unify(sub_df) -> pd.DataFrame:
+    def impute_num_baths_unify(sub_df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         unique_num_baths = sub_df['num_baths'].unique()
         if len(unique_num_baths)==2:
             sub_df['num_baths'] = [x for x in unique_num_baths if str(x) != 'nan'][0]
@@ -167,7 +169,7 @@ class DataPreprocessor:
         return sub_df
 
     @staticmethod
-    def preprocess_num_baths(df, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+    def preprocess_num_baths(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         # Imputation
         """ High confidence => same type, size and number of beds => same number bath
@@ -206,7 +208,7 @@ class DataPreprocessor:
             sub_df['size_sqft'] = [x for x in unique_size_sqft if x != 0][0]
         return sub_df
     @staticmethod
-    def preprocess_size_sqft(df, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+    def preprocess_size_sqft(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         df_.drop(df_[zscore(df_['size_sqft']) > 5].index, inplace=True)
         df_.loc[df_["size_sqft"] <= 200, "size_sqft"] = (df_.loc[df_["size_sqft"] <= 200, "size_sqft"] * 10.76391).astype(int)
@@ -226,13 +228,13 @@ class DataPreprocessor:
         #      total_level = re.find(r'\(\d+ total\)').
             
     @staticmethod
-    def preprocess_floor_level(df, uncertain: bool=KEEP_UNCERTAIN, test=False) -> pd.DataFrame:
+    def preprocess_floor_level(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         FLOOR_LEVEL_TYPE = ["condo", "apartment", "executive condo", "hdb", "hdb executive"]
         df_ = df.copy()
         df_["floor_level"] = df_.apply(lambda sub_df: DataPreprocessor._floor_level_refinement(sub_df, FLOOR_LEVEL_TYPE), axis=1)
         
         df_["floor_level_cat"] = df_["floor_level"].str.split(' ').str[0]
-        df_["total_level_cat"] = df_["floor_level"].str.split(' ').str[1].str.replace(r'\(', '')
+        df_["total_level_cat"] = df_["floor_level"].str.split(' ').str[1].str.replace(r'\(', '', regex=True)
 
         if not test:
             total_level_cat_order = np.sort(df_["total_level_cat"].astype(float).unique())
@@ -256,7 +258,7 @@ class DataPreprocessor:
         return df_
     
     @staticmethod
-    def preprocess_furnishing(df, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+    def preprocess_furnishing(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         df_.loc[df_["furnishing"]=='na', "furnishing"] = 'unspecified'
         furnishing_cat_order = ['unfurnished','partial','fully','unspecified']
@@ -290,7 +292,7 @@ class DataPreprocessor:
             })
 
     @staticmethod
-    def preprocess_available_unit_types(df, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+    def preprocess_available_unit_types(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         df_["available_unit_types_temp"] = df_["available_unit_types"].astype(str).str.replace('br','').str.split(',')
         features_df = df_.apply(DataPreprocessor.extract_features_available_unit_types, axis=1)
@@ -309,9 +311,82 @@ class DataPreprocessor:
             df.loc[df["title_address"]==key, "planning_area"] = val
         return df
     @staticmethod
-    def preprocess_planning_area(df, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+    def preprocess_planning_area(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
         df_ = DataPreprocessor.impute_planning_area(df_)
         planning_area_encoder = OrdinalEncoder(categories=[df_['planning_area'].unique()])
         df_['planning_area_cat'] = planning_area_encoder.fit_transform(df_['planning_area'].astype(str).values.reshape(-1, 1))
         return df_
+
+    @staticmethod
+    def timer_func(func):
+        # This function shows the execution time of 
+        # the function object passed
+        def wrap_func(*args, **kwargs):
+            t1 = time()
+            result = func(*args, **kwargs)
+            t2 = time()
+            log_msg = f'Function {func.__name__!r} executed in {(t2-t1):.4f}s'
+            return result, log_msg
+        return wrap_func
+    
+    @staticmethod
+    def data_preprocessing_v1(
+        df: pd.DataFrame, 
+        test:bool=False, 
+        uncertain:bool=False, 
+        drop_na:bool=False, 
+        remove_original_attributes:bool=True
+    ) -> pd.DataFrame:
+        df_clean = df.copy()
+        drop_attributes = {'listing_id'}
+
+        preprocessing_pipeline = [
+            DataPreprocessor.remove_price_outlier, # Excessive outliers
+            DataPreprocessor.remove_duplicates, # Duplicated records
+            DataPreprocessor.preprocess_title, # extract features form title
+            DataPreprocessor.preprocess_property_type, # property_type
+            DataPreprocessor.preprocess_tenure, # tenure
+            DataPreprocessor.preprocess_built_year, # built_year -  unfinished!
+            DataPreprocessor.preprocess_num_beds, # num_beds
+            DataPreprocessor.preprocess_num_baths, # num_baths
+            DataPreprocessor.preprocess_size_sqft, # size_sqft
+            DataPreprocessor.preprocess_floor_level, # floor_level
+            DataPreprocessor.preprocess_furnishing, # furnishing
+            DataPreprocessor.preprocess_available_unit_types, # available_unit_types
+            DataPreprocessor.preprocess_planning_area, # planning_area
+        ]
+
+        @DataPreprocessor.timer_func
+        def executor(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        p_bar = tqdm(preprocessing_pipeline)
+        for preprocess_func in p_bar:
+            df_clean, log_msg = executor(preprocess_func, df_clean, test=test, uncertain=uncertain)
+            log_msg = log_msg.replace("executor", preprocess_func.__name__)
+            p_bar.set_description("Processing %s" % log_msg)
+
+        if remove_original_attributes:
+            drop_attributes.add('title')
+            drop_attributes.add('title_property_type')
+            drop_attributes.add('title_n_beds')
+            drop_attributes.add('title_address')
+            drop_attributes.add('address')
+            drop_attributes.add('property_name')
+            drop_attributes.add('property_type')
+            drop_attributes.add('property_type_clean')
+            drop_attributes.add('tenure')
+            drop_attributes.add('block_number')
+            drop_attributes.add('floor_level')
+            drop_attributes.add('lat_lowres')
+            drop_attributes.add('lng_lowres')
+            drop_attributes.add('subzone')
+            drop_attributes.add('available_unit_types')
+            drop_attributes.add('total_num_units')
+            df_clean = df_clean.drop(drop_attributes, axis=1,inplace=False).reset_index(drop=True)
+        
+        if drop_na:
+            df_clean = df_clean.dropna()
+
+        return df_clean
