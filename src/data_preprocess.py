@@ -3,7 +3,7 @@ import pandas as pd
 from time import time
 from scipy.stats import zscore
 from sklearn import preprocessing
-from sklearn.preprocessing import OrdinalEncoder
+from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
 import pickle
 import pathlib
 from tqdm import tqdm
@@ -11,6 +11,15 @@ from tqdm import tqdm
 WORKING_DIR = pathlib.Path(__file__).parent.parent.resolve()
 # depends on if model can handle NaN or not
 KEEP_UNCERTAIN = False
+
+ENCODER = {
+    "property_type_encoder": OrdinalEncoder(),
+    "tenure_encoder": OneHotEncoder(),
+    "total_level_encoder": OrdinalEncoder(),
+    "floor_level_encoder": OneHotEncoder(),
+    "furnishing_encoder": OneHotEncoder(),
+    "planning_area_encoder": OrdinalEncoder(),
+}
 
 class DataPreprocessor:
     @staticmethod
@@ -81,15 +90,19 @@ class DataPreprocessor:
         
         if not test:
             cat_order = df_.groupby('property_type_clean').median().sort_values('price').index.to_list()
-            enc = OrdinalEncoder(categories=[cat_order])
+            property_type_encoder = ENCODER["property_type_encoder"]
+            property_type_encoder.set_params(categories=[cat_order])
+            property_type_encoder.fit(df_['property_type_clean'].values.reshape(-1, 1))
             with open(WORKING_DIR/'lib'/'property_type_encoder.sav', 'wb') as f:
-                pickle.dump(enc, f)
+                pickle.dump(property_type_encoder, f)
         else:
             with open(WORKING_DIR/'lib'/'property_type_encoder.sav', 'rb') as f:
-                enc = pickle.load(f)
+                property_type_encoder = pickle.load(f)
 
-        df_['property_type_cat'] = enc.fit_transform(df_['property_type_clean'].values.reshape(-1, 1))
-
+        property_type_cat = property_type_encoder.transform(df_['property_type_clean'].values.reshape(-1, 1))
+        if type(property_type_cat)!=np.ndarray: property_type_cat = property_type_cat.toarray()
+        for feature in range(property_type_cat.shape[1]):
+            df_[f'property_type_cat_{feature}']  = property_type_cat[:, feature]
         return df_
 
     @staticmethod
@@ -104,15 +117,19 @@ class DataPreprocessor:
         
         if not test:
             cat_order = df_.groupby('tenure').median().sort_values('price').index.to_list()
-            enc = OrdinalEncoder(categories=[cat_order])
+            tenure_encoder = ENCODER["tenure_encoder"]
+            tenure_encoder.set_params(categories=[cat_order])
+            tenure_encoder.fit(df_['tenure'].values.reshape(-1, 1))
             with open(WORKING_DIR/'lib'/'tenure_encoder.sav', 'wb') as f:
-                pickle.dump(enc, f)
+                pickle.dump(tenure_encoder, f)
         else:
             with open(WORKING_DIR/'lib'/'tenure_encoder.sav', 'rb') as f:
-                enc = pickle.load(f)
+                tenure_encoder = pickle.load(f)
 
-        df_['tenure_cat'] = enc.fit_transform(df_['tenure'].values.reshape(-1, 1))
-
+        tenure_cat = tenure_encoder.transform(df_['tenure'].values.reshape(-1, 1))
+        if type(tenure_cat)!=np.ndarray: tenure_cat = tenure_cat.toarray()
+        for feature in range(tenure_cat.shape[1]):
+            df_[f'tenure_cat_{feature}']  = tenure_cat[:, feature]
         return df_
 
     def impute_built_year_unify(sub_df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
@@ -256,12 +273,19 @@ class DataPreprocessor:
         if not test:
             total_level_cat_order = np.sort(df_["total_level_cat"].astype(float).unique())
             total_level_cat_order = [str(x) for x in total_level_cat_order]
-            total_level_encoder = OrdinalEncoder(categories=[total_level_cat_order], handle_unknown='use_encoded_value', unknown_value=len(total_level_cat_order))
+            total_level_encoder = ENCODER["total_level_encoder"]
+            total_level_encoder.set_params(
+                categories=[total_level_cat_order], 
+                handle_unknown='use_encoded_value', 
+                unknown_value=len(total_level_cat_order))
+            total_level_encoder.fit(df_['total_level_cat'].astype(float).astype(str).values.reshape(-1, 1))
             with open(WORKING_DIR/'lib'/'total_level_encoder.sav', 'wb') as f:
                 pickle.dump(total_level_encoder, f)
             
             floor_level_cat_order = ['ground', 'low', 'mid', 'high', 'top', 'penthouse', 'no_level', 'nan']
-            floor_level_encoder = OrdinalEncoder(categories=[floor_level_cat_order])
+            floor_level_encoder = ENCODER["floor_level_encoder"]
+            floor_level_encoder.set_params(categories=[floor_level_cat_order])
+            floor_level_encoder.fit(df_['floor_level_cat'].astype(str).values.reshape(-1, 1))
             with open(WORKING_DIR/'lib'/'floor_level_encoder.sav', 'wb') as f:
                 pickle.dump(floor_level_encoder, f)
         else:
@@ -269,8 +293,18 @@ class DataPreprocessor:
                 total_level_encoder = pickle.load(f)
             with open(WORKING_DIR/'lib'/'floor_level_encoder.sav', 'rb') as f:
                 floor_level_encoder = pickle.load(f)
-        df_['total_level_cat'] = total_level_encoder.fit_transform(df_['total_level_cat'].astype(float).astype(str).values.reshape(-1, 1))
-        df_['floor_level_cat'] = floor_level_encoder.fit_transform(df_['floor_level_cat'].astype(str).values.reshape(-1, 1))
+        
+        total_level_cat = total_level_encoder.transform(df_['total_level_cat'].astype(float).astype(str).values.reshape(-1, 1))
+        if type(total_level_cat)!=np.ndarray: total_level_cat = total_level_cat.toarray()
+        for feature in range(total_level_cat.shape[1]):
+            df_[f'total_level_cat_{feature}']  = total_level_cat[:, feature]
+
+        floor_level_cat = floor_level_encoder.transform(df_['floor_level_cat'].astype(str).values.reshape(-1, 1))
+        if type(floor_level_cat)!=np.ndarray: floor_level_cat = floor_level_cat.toarray()
+        for feature in range(floor_level_cat.shape[1]):
+            df_[f'floor_level_cat_{feature}']  = floor_level_cat[:, feature]
+        
+        df_ = df_.drop(["floor_level_cat","total_level_cat"], axis=1,inplace=False)
         return df_
     
     @staticmethod
@@ -279,13 +313,19 @@ class DataPreprocessor:
         df_.loc[df_["furnishing"]=='na', "furnishing"] = 'unspecified'
         if not test:
             furnishing_cat_order = ['unfurnished','partial','fully','unspecified']
-            furnishing_encoder = OrdinalEncoder(categories=[furnishing_cat_order])
+            furnishing_encoder = ENCODER["furnishing_encoder"]
+            furnishing_encoder.set_params(categories=[furnishing_cat_order])
+            furnishing_encoder.fit(df_['furnishing'].astype(str).values.reshape(-1, 1))
             with open(WORKING_DIR/'lib'/'furnishing_encoder.sav', 'wb') as f:
                 pickle.dump(furnishing_encoder, f)
         else:
             with open(WORKING_DIR/'lib'/'furnishing_encoder.sav', 'rb') as f:
                 furnishing_encoder = pickle.load(f)
-        df_['furnishing_cat'] = furnishing_encoder.fit_transform(df_['furnishing'].astype(str).values.reshape(-1, 1))
+
+        furnishing_cat = furnishing_encoder.transform(df_['furnishing'].astype(str).values.reshape(-1, 1))
+        if type(furnishing_cat)!=np.ndarray: furnishing_cat = furnishing_cat.toarray()
+        for feature in range(furnishing_cat.shape[1]):
+            df_[f'furnishing_cat_{feature}']  = furnishing_cat[:, feature]
         return df_
 
     def extract_features_available_unit_types(row):
@@ -339,13 +379,18 @@ class DataPreprocessor:
         if not test:
             planning_area_list = list(df_['planning_area'].unique())
             planning_area_list.append('nan')
-            planning_area_encoder = OrdinalEncoder(categories=[planning_area_list], handle_unknown='use_encoded_value', unknown_value=len(planning_area_list))
+            planning_area_encoder = ENCODER["planning_area_encoder"]
+            planning_area_encoder.set_params(categories=[planning_area_list], handle_unknown='use_encoded_value', unknown_value=len(planning_area_list))
+            planning_area_encoder.fit(df_['planning_area'].astype(str).values.reshape(-1, 1))
             with open(WORKING_DIR/'lib'/'planning_area_encoder.sav', 'wb') as f:
                 pickle.dump(planning_area_encoder, f)
         else:
             with open(WORKING_DIR/'lib'/'planning_area_encoder.sav', 'rb') as f:
                 planning_area_encoder = pickle.load(f)
-        df_['planning_area_cat'] = planning_area_encoder.fit_transform(df_['planning_area'].astype(str).values.reshape(-1, 1))
+        planning_area_cat = planning_area_encoder.transform(df_['planning_area'].astype(str).values.reshape(-1, 1))
+        if type(planning_area_cat)!=np.ndarray: planning_area_cat = planning_area_cat.toarray()
+        for feature in range(planning_area_cat.shape[1]):
+            df_[f'planning_area_cat_{feature}']  = planning_area_cat[:, feature]
         return df_
 
     @staticmethod
@@ -393,10 +438,12 @@ class DataPreprocessor:
             return func(*args, **kwargs)
 
         p_bar = tqdm(preprocessing_pipeline)
+        log_msg = "Pre-processing Start"
         for preprocess_func in p_bar:
+            p_bar.set_description(f"Processed function: {log_msg} & Processing function: {preprocess_func.__name__}")
             df_clean, log_msg = executor(preprocess_func, df_clean, test=test, uncertain=uncertain)
             log_msg = log_msg.replace("executor", preprocess_func.__name__)
-            p_bar.set_description("Processing %s" % log_msg)
+            
 
         if remove_original_attributes:
             drop_attributes.add('title')
