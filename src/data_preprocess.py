@@ -240,6 +240,7 @@ class DataPreprocessor:
         if len(unique_size_sqft)==2:
             sub_df['size_sqft'] = [x for x in unique_size_sqft if x != 0][0]
         return sub_df
+        
     @staticmethod
     def preprocess_size_sqft(df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
         df_ = df.copy()
