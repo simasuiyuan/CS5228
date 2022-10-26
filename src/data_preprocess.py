@@ -7,6 +7,7 @@ from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
 import pickle
 import pathlib
 from tqdm import tqdm
+from math import sin, cos, sqrt, atan2, radians
 
 WORKING_DIR = pathlib.Path(__file__).parent.parent.resolve()
 # depends on if model can handle NaN or not
@@ -19,6 +20,13 @@ ENCODER = {
     "floor_level_encoder": OneHotEncoder(),
     "furnishing_encoder": OneHotEncoder(),
     "planning_area_encoder": OrdinalEncoder(),
+    "CR_encoder": OrdinalEncoder(),
+    "IEBP_encoder": OrdinalEncoder(),
+    "BN_encoder": OrdinalEncoder(),
+    "IHL_encoder": OrdinalEncoder(),
+    "pri_sch_encoder": OrdinalEncoder(),
+    "sec_sch_encoder": OrdinalEncoder(),
+    "shopping_mall_encoder": OrdinalEncoder(),
 }
 
 class DataPreprocessor:
@@ -467,9 +475,207 @@ class DataPreprocessor:
             drop_attributes.add('property_details_url')
             drop_attributes.add('planning_area')
             drop_attributes.add('elevation')
+            drop_attributes.add('CR')
+            drop_attributes.add('IEBP')
+            drop_attributes.add('BN')
+            drop_attributes.add('IHL')
             df_clean = df_clean.drop(drop_attributes, axis=1,inplace=False).reset_index(drop=True)
         
         if drop_na:
             df_clean = df_clean.dropna()
 
         return df_clean
+
+    """ Auxillary Dataset
+    """
+    @staticmethod
+    def compute_dist(lat1:float, lng1:float, lat2:float, lng2:float)->float:
+        # approximate radius of earth in km
+        R = 6373.0
+        lat1 = radians(lat1)
+        lng1 = radians(lng1)
+        lat2 = radians(lat2)
+        lng2 = radians(lng2)
+        dlng = lng2 - lng1
+        dlat = lat2 - lat1
+        a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlng / 2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return R * c
+    
+    @staticmethod
+    def _distance_to_closest_centres(row, sg_commercial_centres_df):
+        shortest_distances = {
+            'CR_dist': np.inf,
+            'CR': None,
+            'IEBP_dist': np.inf,
+            'IEBP': None,
+            'BN_dist': np.inf,
+            'BN': None,
+            'IHL_dist': np.inf,
+            'IHL': None,
+        }
+        for type in sg_commercial_centres_df["type"].unique():
+            available_centers = sg_commercial_centres_df.loc[sg_commercial_centres_df["type"]==type, ['lat','lng','name']]
+            available_centers['dist'] = available_centers.apply(lambda available_center: DataPreprocessor.compute_dist(row['lat'], row['lng'], available_center['lat'], available_center['lng']), axis=1)
+            shortest_distances[f"{type}_dist"] =  available_centers["dist"].min()
+            shortest_distances[type] =  available_centers.loc[available_centers["dist"]==available_centers["dist"].min(),'name'].values[0]
+        return shortest_distances
+
+    @staticmethod
+    def preprocess_commercial_center(df, sg_commercial_centres_df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+        df_ = df.copy()
+        sg_commercial_centres_df.loc[sg_commercial_centres_df['type']=='IEPB', 'type'] = 'IEBP'
+        unique_location = df_[['lat', 'lng']].drop_duplicates().reset_index(drop=True)
+        closest_commercial_centers = unique_location.merge(
+            pd.DataFrame(
+                list(
+                    unique_location.apply(lambda row: DataPreprocessor._distance_to_closest_centres(row, sg_commercial_centres_df), axis=1)
+                )), 
+            left_index=True, 
+            right_index=True
+        )
+        df_ = df_.merge(closest_commercial_centers, left_on=['lat','lng'], right_on=['lat','lng'])
+
+        for __type in sg_commercial_centres_df["type"].unique():
+            print(__type)
+            if not test:
+                cat_order = df_.groupby(__type).median().sort_values('price').index.to_list()
+                commercial_encoder = ENCODER[f"{__type}_encoder"]
+                commercial_encoder.set_params(categories=[cat_order])
+                commercial_encoder.fit(df_[__type].values.reshape(-1, 1))
+                with open(WORKING_DIR/'lib'/f'{__type}_encoder.sav', 'wb') as f:
+                    pickle.dump(commercial_encoder, f)
+            else:
+                with open(WORKING_DIR/'lib'/f'{__type}_encoder.sav', 'rb') as f:
+                    commercial_encoder = pickle.load(f)
+
+            commercial_cat = commercial_encoder.transform(df_[__type].values.reshape(-1, 1))
+            if type(commercial_cat)!=np.ndarray: commercial_cat = commercial_cat.toarray()
+            for feature in range(commercial_cat.shape[1]):
+                df_[f'{__type}_cat_{feature}']  = commercial_cat[:, feature]
+        return df_
+
+    @staticmethod
+    def _distance_and_closest_community(row, ref_df: pd.DataFrame, key: str, radius=0.5):
+        ref_keys = {
+            f'{key}_dist': np.inf,
+            f'{key}_name': None,
+            f'number_of_close_{key}':0
+        }
+        available_items = ref_df.loc[:, ['lat','lng','name']]
+        available_items['dist'] = available_items.apply(lambda available_item: DataPreprocessor.compute_dist(row['lat'], row['lng'], available_item['lat'], available_item['lng']), axis=1)
+        ref_keys[f'{key}_dist'] =  available_items["dist"].min()
+        ref_keys[f'{key}_name'] = available_items.loc[available_items["dist"]==available_items["dist"].min(),'name'].values[0]
+        ref_keys[f'number_of_close_{key}'] = available_items.loc[available_items["dist"] <= radius].shape[0]
+        return ref_keys
+
+    @staticmethod
+    def preprocess_primary_school(df, ref_df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+        df_ = df.copy()
+        
+        unique_location = df_[['lat', 'lng']].drop_duplicates().reset_index(drop=True)
+        key = 'pri_sch'
+        closest_primary_school = unique_location.merge(
+            pd.DataFrame(
+                list(
+                    unique_location.apply(lambda row: DataPreprocessor._distance_and_closest_community(
+                        row, 
+                        ref_df,
+                        key=key
+                    ), axis=1)
+                )), 
+            left_index=True, 
+            right_index=True
+        )
+        df_ = df_.merge(closest_primary_school, left_on=['lat','lng'], right_on=['lat','lng'])
+
+        if not test:
+            cat_order = df_.groupby(f'{key}_name').median().sort_values('price').index.to_list()
+            pri_sch_encoder = ENCODER[f"{key}_encoder"]
+            pri_sch_encoder.set_params(categories=[cat_order])
+            pri_sch_encoder.fit(df_[f'{key}_name'].values.reshape(-1, 1))
+            with open(WORKING_DIR/'lib'/f'{key}_encoder.sav', 'wb') as f:
+                pickle.dump(pri_sch_encoder, f)
+        else:
+            with open(WORKING_DIR/'lib'/f'{key}_encoder.sav', 'rb') as f:
+                pri_sch_encoder = pickle.load(f)
+
+        pri_sch_cat = pri_sch_encoder.transform(df_[f'{key}_name'].values.reshape(-1, 1))
+        if type(pri_sch_cat)!=np.ndarray: pri_sch_cat = pri_sch_cat.toarray()
+        for feature in range(pri_sch_cat.shape[1]):
+            df_[f'{key}_cat_{feature}']  = pri_sch_cat[:, feature]
+        return df_
+
+    @staticmethod
+    def preprocess_secondary_school(df, ref_df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+        df_ = df.copy()
+        
+        unique_location = df_[['lat', 'lng']].drop_duplicates().reset_index(drop=True)
+        key = 'sec_sch'
+        closest_secondary_school = unique_location.merge(
+            pd.DataFrame(
+                list(
+                    unique_location.apply(lambda row: DataPreprocessor._distance_and_closest_community(
+                        row, 
+                        ref_df,
+                        key=key
+                    ), axis=1)
+                )), 
+            left_index=True, 
+            right_index=True
+        )
+        df_ = df_.merge(closest_secondary_school, left_on=['lat','lng'], right_on=['lat','lng'])
+
+        if not test:
+            cat_order = df_.groupby(f'{key}_name').median().sort_values('price').index.to_list()
+            sec_sch_encoder = ENCODER[f"{key}_encoder"]
+            sec_sch_encoder.set_params(categories=[cat_order])
+            sec_sch_encoder.fit(df_[f'{key}_name'].values.reshape(-1, 1))
+            with open(WORKING_DIR/'lib'/f'{key}_encoder.sav', 'wb') as f:
+                pickle.dump(sec_sch_encoder, f)
+        else:
+            with open(WORKING_DIR/'lib'/f'{key}_encoder.sav', 'rb') as f:
+                sec_sch_encoder = pickle.load(f)
+
+        sec_sch_cat = sec_sch_encoder.transform(df_[f'{key}_name'].values.reshape(-1, 1))
+        if type(sec_sch_cat)!=np.ndarray: sec_sch_cat = sec_sch_cat.toarray()
+        for feature in range(sec_sch_cat.shape[1]):
+            df_[f'{key}_cat_{feature}']  = sec_sch_cat[:, feature]
+        return df_
+
+    @staticmethod
+    def preprocess_shopping_mall(df, ref_df, test=False, uncertain: bool=KEEP_UNCERTAIN) -> pd.DataFrame:
+        df_ = df.copy()
+        
+        unique_location = df_[['lat', 'lng']].drop_duplicates().reset_index(drop=True)
+        key = 'shopping_mall'
+        closest_shopping_mall = unique_location.merge(
+            pd.DataFrame(
+                list(
+                    unique_location.apply(lambda row: DataPreprocessor._distance_and_closest_community(
+                        row, 
+                        ref_df,
+                        key=key
+                    ), axis=1)
+                )), 
+            left_index=True, 
+            right_index=True
+        )
+        df_ = df_.merge(closest_shopping_mall, left_on=['lat','lng'], right_on=['lat','lng'])
+
+        if not test:
+            cat_order = df_.groupby(f'{key}_name').median().sort_values('price').index.to_list()
+            shopping_mall_encoder = ENCODER[f"{key}_encoder"]
+            shopping_mall_encoder.set_params(categories=[cat_order])
+            shopping_mall_encoder.fit(df_[f'{key}_name'].values.reshape(-1, 1))
+            with open(WORKING_DIR/'lib'/f'{key}_encoder.sav', 'wb') as f:
+                pickle.dump(shopping_mall_encoder, f)
+        else:
+            with open(WORKING_DIR/'lib'/f'{key}_encoder.sav', 'rb') as f:
+                shopping_mall_encoder = pickle.load(f)
+
+        shopping_mall_cat = shopping_mall_encoder.transform(df_[f'{key}_name'].values.reshape(-1, 1))
+        if type(shopping_mall_cat)!=np.ndarray: shopping_mall_cat = shopping_mall_cat.toarray()
+        for feature in range(shopping_mall_cat.shape[1]):
+            df_[f'{key}_cat_{feature}']  = shopping_mall_cat[:, feature]
+        return df_
