@@ -679,3 +679,75 @@ class DataPreprocessor:
         for feature in range(shopping_mall_cat.shape[1]):
             df_[f'{key}_cat_{feature}']  = shopping_mall_cat[:, feature]
         return df_
+
+    # @staticmethod
+    # def data_preprocessing_v2(
+    #     df: pd.DataFrame, 
+    #     test:bool=False, 
+    #     uncertain:bool=False, 
+    #     drop_na:bool=False, 
+    #     remove_original_attributes:bool=True
+    # ) -> pd.DataFrame:
+    #     df_clean = df.copy()
+    #     drop_attributes = {'listing_id'}
+
+    #     preprocessing_pipeline = [
+    #         DataPreprocessor.remove_price_outlier, # Excessive outliers
+    #         DataPreprocessor.remove_duplicates, # Duplicated records
+    #         DataPreprocessor.preprocess_title, # extract features form title
+    #         DataPreprocessor.preprocess_lat_lng, # correct lat and lng
+    #         DataPreprocessor.preprocess_property_type, # property_type
+    #         DataPreprocessor.preprocess_tenure, # tenure
+    #         DataPreprocessor.preprocess_built_year, # built_year -  unfinished!
+    #         DataPreprocessor.preprocess_num_beds, # num_beds
+    #         DataPreprocessor.preprocess_num_baths, # num_baths
+    #         DataPreprocessor.preprocess_size_sqft, # size_sqft
+    #         DataPreprocessor.preprocess_floor_level, # floor_level
+    #         DataPreprocessor.preprocess_furnishing, # furnishing
+    #         DataPreprocessor.preprocess_available_unit_types, # available_unit_types
+    #         DataPreprocessor.preprocess_planning_area, # planning_area
+    #     ]
+
+    #     @DataPreprocessor.timer_func
+    #     def executor(func, *args, **kwargs):
+    #         return func(*args, **kwargs)
+
+    #     p_bar = tqdm(preprocessing_pipeline)
+    #     log_msg = "Pre-processing Start"
+    #     for preprocess_func in p_bar:
+    #         p_bar.set_description(f"Processed function: {log_msg} & Processing function: {preprocess_func.__name__}")
+    #         df_clean, log_msg = executor(preprocess_func, df_clean, test=test, uncertain=uncertain)
+    #         log_msg = log_msg.replace("executor", preprocess_func.__name__)
+            
+
+    #     if remove_original_attributes:
+    #         drop_attributes.add('title')
+    #         drop_attributes.add('title_property_type')
+    #         drop_attributes.add('title_n_beds')
+    #         drop_attributes.add('title_address')
+    #         drop_attributes.add('address')
+    #         drop_attributes.add('property_name')
+    #         drop_attributes.add('property_type')
+    #         drop_attributes.add('property_type_clean')
+    #         drop_attributes.add('tenure')
+    #         drop_attributes.add('block_number')
+    #         drop_attributes.add('floor_level')
+    #         drop_attributes.add('lat_lowres')
+    #         drop_attributes.add('lng_lowres')
+    #         drop_attributes.add('subzone')
+    #         drop_attributes.add('available_unit_types')
+    #         drop_attributes.add('total_num_units')
+    #         drop_attributes.add('furnishing')
+    #         drop_attributes.add('property_details_url')
+    #         drop_attributes.add('planning_area')
+    #         drop_attributes.add('elevation')
+    #         drop_attributes.add('CR')
+    #         drop_attributes.add('IEBP')
+    #         drop_attributes.add('BN')
+    #         drop_attributes.add('IHL')
+    #         df_clean = df_clean.drop(drop_attributes, axis=1,inplace=False).reset_index(drop=True)
+        
+    #     if drop_na:
+    #         df_clean = df_clean.dropna()
+
+    #     return df_clean
