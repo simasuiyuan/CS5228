@@ -15,7 +15,7 @@ project
 ~~~
 ## download dataset
 ~~~
-kaggle competitions download -c cs5228-2022-semester-1-final-project -p input
+kaggle competitions download -c cs5228-2022-semester-1-final-group-project -p input
 ~~~
 
 ## Task1: pre-process attributes

@@ -475,10 +475,6 @@ class DataPreprocessor:
             drop_attributes.add('property_details_url')
             drop_attributes.add('planning_area')
             drop_attributes.add('elevation')
-            drop_attributes.add('CR')
-            drop_attributes.add('IEBP')
-            drop_attributes.add('BN')
-            drop_attributes.add('IHL')
             df_clean = df_clean.drop(drop_attributes, axis=1,inplace=False).reset_index(drop=True)
         
         if drop_na:
@@ -537,7 +533,6 @@ class DataPreprocessor:
         df_ = df_.merge(closest_commercial_centers, left_on=['lat','lng'], right_on=['lat','lng'])
 
         for __type in sg_commercial_centres_df["type"].unique():
-            print(__type)
             if not test:
                 cat_order = df_.groupby(__type).median().sort_values('price').index.to_list()
                 commercial_encoder = ENCODER[f"{__type}_encoder"]
@@ -581,7 +576,8 @@ class DataPreprocessor:
                     unique_location.apply(lambda row: DataPreprocessor._distance_and_closest_community(
                         row, 
                         ref_df,
-                        key=key
+                        key=key,
+                        radius=0.3
                     ), axis=1)
                 )), 
             left_index=True, 
@@ -618,7 +614,8 @@ class DataPreprocessor:
                     unique_location.apply(lambda row: DataPreprocessor._distance_and_closest_community(
                         row, 
                         ref_df,
-                        key=key
+                        key=key,
+                        radius=0.3
                     ), axis=1)
                 )), 
             left_index=True, 
@@ -655,7 +652,8 @@ class DataPreprocessor:
                     unique_location.apply(lambda row: DataPreprocessor._distance_and_closest_community(
                         row, 
                         ref_df,
-                        key=key
+                        key=key,
+                        radius=0.8
                     ), axis=1)
                 )), 
             left_index=True, 
@@ -680,74 +678,71 @@ class DataPreprocessor:
             df_[f'{key}_cat_{feature}']  = shopping_mall_cat[:, feature]
         return df_
 
-    # @staticmethod
-    # def data_preprocessing_v2(
-    #     df: pd.DataFrame, 
-    #     test:bool=False, 
-    #     uncertain:bool=False, 
-    #     drop_na:bool=False, 
-    #     remove_original_attributes:bool=True
-    # ) -> pd.DataFrame:
-    #     df_clean = df.copy()
-    #     drop_attributes = {'listing_id'}
-
-    #     preprocessing_pipeline = [
-    #         DataPreprocessor.remove_price_outlier, # Excessive outliers
-    #         DataPreprocessor.remove_duplicates, # Duplicated records
-    #         DataPreprocessor.preprocess_title, # extract features form title
-    #         DataPreprocessor.preprocess_lat_lng, # correct lat and lng
-    #         DataPreprocessor.preprocess_property_type, # property_type
-    #         DataPreprocessor.preprocess_tenure, # tenure
-    #         DataPreprocessor.preprocess_built_year, # built_year -  unfinished!
-    #         DataPreprocessor.preprocess_num_beds, # num_beds
-    #         DataPreprocessor.preprocess_num_baths, # num_baths
-    #         DataPreprocessor.preprocess_size_sqft, # size_sqft
-    #         DataPreprocessor.preprocess_floor_level, # floor_level
-    #         DataPreprocessor.preprocess_furnishing, # furnishing
-    #         DataPreprocessor.preprocess_available_unit_types, # available_unit_types
-    #         DataPreprocessor.preprocess_planning_area, # planning_area
-    #     ]
-
-    #     @DataPreprocessor.timer_func
-    #     def executor(func, *args, **kwargs):
-    #         return func(*args, **kwargs)
-
-    #     p_bar = tqdm(preprocessing_pipeline)
-    #     log_msg = "Pre-processing Start"
-    #     for preprocess_func in p_bar:
-    #         p_bar.set_description(f"Processed function: {log_msg} & Processing function: {preprocess_func.__name__}")
-    #         df_clean, log_msg = executor(preprocess_func, df_clean, test=test, uncertain=uncertain)
-    #         log_msg = log_msg.replace("executor", preprocess_func.__name__)
+    @staticmethod
+    def data_preprocessing_v2(
+        df: pd.DataFrame,
+        test:bool=False, 
+        uncertain:bool=False, 
+        drop_na:bool=False, 
+        remove_original_attributes:bool=True,
+        if_auxiliary:bool=True,
+        sg_commercial_centres_df: pd.DataFrame=None,
+        sg_primary_schools_df: pd.DataFrame=None,
+        sg_secondary_schools_df: pd.DataFrame=None,
+        sg_shopping_mall_df: pd.DataFrame=None
+    ) -> pd.DataFrame:
+        df_clean = df.copy()
+        df_clean = DataPreprocessor.data_preprocessing_v1(
+            df_clean, 
+            test=test, 
+            uncertain=uncertain, 
+            drop_na=drop_na, 
+            remove_original_attributes=remove_original_attributes)
+        if if_auxiliary:
+            drop_attributes = set()
+            auxiliary_preprocessing_pipeline=[]
+            ref_data = []
+            if sg_commercial_centres_df is not None:
+                auxiliary_preprocessing_pipeline.append(DataPreprocessor.preprocess_commercial_center)
+                ref_data.append(sg_commercial_centres_df)
+                if remove_original_attributes:
+                    drop_attributes.add('CR')
+                    drop_attributes.add('IEBP')
+                    drop_attributes.add('BN')
+                    drop_attributes.add('IHL')
+            if sg_primary_schools_df is not None:
+                auxiliary_preprocessing_pipeline.append(DataPreprocessor.preprocess_primary_school)
+                ref_data.append(sg_primary_schools_df)
+                if remove_original_attributes:
+                    drop_attributes.add('pri_sch_name')
+            if sg_secondary_schools_df is not None:
+                auxiliary_preprocessing_pipeline.append(DataPreprocessor.preprocess_secondary_school)
+                ref_data.append(sg_secondary_schools_df)
+                if remove_original_attributes:
+                    drop_attributes.add('sec_sch_name')
+            if sg_shopping_mall_df is not None:
+                auxiliary_preprocessing_pipeline.append(DataPreprocessor.preprocess_shopping_mall)
+                ref_data.append(sg_shopping_mall_df)
+                if remove_original_attributes:
+                    drop_attributes.add('shopping_mall_name')
             
+        @DataPreprocessor.timer_func
+        def executor(func, *args, **kwargs):
+            return func(*args, **kwargs)
 
-    #     if remove_original_attributes:
-    #         drop_attributes.add('title')
-    #         drop_attributes.add('title_property_type')
-    #         drop_attributes.add('title_n_beds')
-    #         drop_attributes.add('title_address')
-    #         drop_attributes.add('address')
-    #         drop_attributes.add('property_name')
-    #         drop_attributes.add('property_type')
-    #         drop_attributes.add('property_type_clean')
-    #         drop_attributes.add('tenure')
-    #         drop_attributes.add('block_number')
-    #         drop_attributes.add('floor_level')
-    #         drop_attributes.add('lat_lowres')
-    #         drop_attributes.add('lng_lowres')
-    #         drop_attributes.add('subzone')
-    #         drop_attributes.add('available_unit_types')
-    #         drop_attributes.add('total_num_units')
-    #         drop_attributes.add('furnishing')
-    #         drop_attributes.add('property_details_url')
-    #         drop_attributes.add('planning_area')
-    #         drop_attributes.add('elevation')
-    #         drop_attributes.add('CR')
-    #         drop_attributes.add('IEBP')
-    #         drop_attributes.add('BN')
-    #         drop_attributes.add('IHL')
-    #         df_clean = df_clean.drop(drop_attributes, axis=1,inplace=False).reset_index(drop=True)
+        p_bar = tqdm(range(len(auxiliary_preprocessing_pipeline)))
+        log_msg = "Pre-processing for Auxiliary Data Start"
+        for preprocess_func_idx in p_bar:
+            preprocess_func = auxiliary_preprocessing_pipeline[preprocess_func_idx]
+            ref_df = ref_data[preprocess_func_idx]
+            p_bar.set_description(f"Processed function: {log_msg} & Processing function: {preprocess_func.__name__}")
+            df_clean, log_msg = executor(preprocess_func, df_clean, ref_df, test=test, uncertain=uncertain)
+            log_msg = log_msg.replace("executor", preprocess_func.__name__)
         
-    #     if drop_na:
-    #         df_clean = df_clean.dropna()
+        if remove_original_attributes:
+            df_clean = df_clean.drop(drop_attributes, axis=1,inplace=False).reset_index(drop=True)
+        
+        if drop_na:
+            df_clean = df_clean.dropna()
 
-    #     return df_clean
+        return df_clean
