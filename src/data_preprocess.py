@@ -35,6 +35,7 @@ class DataPreprocessor:
         df_ = df.copy()
         if not test:
             df_.drop(df_[zscore(df_['price']) > 3].index, inplace=True)
+            df_ = df_[df_['price']>0]
             # df_.drop(df_[zscore(df_['lat']) > 2].index, inplace=True)
             # df_.drop(df_[~((zscore(train_df_clean['lng']) > -1) & (zscore(train_df_clean['lng']) < 1))].index, inplace=True)
         return df_
