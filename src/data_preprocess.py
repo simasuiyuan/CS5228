@@ -314,7 +314,7 @@ class DataPreprocessor:
         for feature in range(floor_level_cat.shape[1]):
             df_[f'floor_level_cat_{feature}']  = floor_level_cat[:, feature]
         
-        df_ = df_.drop(["floor_level_cat","total_level_cat"], axis=1,inplace=False)
+        # df_ = df_.drop(["floor_level_cat","total_level_cat"], axis=1,inplace=False)
         return df_
     
     @staticmethod
